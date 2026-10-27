@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using AutoMapper;
+using Microsoft.AspNetCore.Mvc;
 using WebApi.MinimalApi.Domain;
 using WebApi.MinimalApi.Models;
 
@@ -8,20 +9,65 @@ namespace WebApi.MinimalApi.Controllers;
 [ApiController]
 public class UsersController : Controller
 {
-    // Чтобы ASP.NET положил что-то в userRepository требуется конфигурация
-    public UsersController(IUserRepository userRepository)
+    private readonly IUserRepository userRepository;
+    private readonly IMapper mapper;
+
+    public UsersController(IUserRepository userRepository, IMapper mapper)
     {
+        this.userRepository = userRepository;
+        this.mapper = mapper;
     }
 
-    [HttpGet("{userId}")]
+    [HttpGet("{userId}", Name = nameof(GetUserById))]
+    [Produces("application/json", "application/xml")]
     public ActionResult<UserDto> GetUserById([FromRoute] Guid userId)
     {
-        throw new NotImplementedException();
+        var user = userRepository.FindById(userId);
+        if (user == null)
+            return NotFound();
+
+        return Ok(mapper.Map<UserDto>(user));
     }
 
     [HttpPost]
-    public IActionResult CreateUser([FromBody] object user)
+    [Produces("application/json", "application/xml")]
+    public IActionResult CreateUser([FromBody] CreateUserDto user)
     {
-        throw new NotImplementedException();
+        if (user == null)
+            return BadRequest();
+
+        if (user.Login != null && !user.Login.All(char.IsLetterOrDigit))
+            ModelState.AddModelError(nameof(CreateUserDto.Login), "Login should contain only letters or digits");
+
+        if (!ModelState.IsValid)
+            return UnprocessableEntity(ModelState);
+
+        var createdUserEntity = userRepository.Insert(mapper.Map<UserEntity>(user));
+        return CreatedAtRoute(
+            nameof(GetUserById),
+            new { userId = createdUserEntity.Id },
+            createdUserEntity.Id);
+    }
+
+    [HttpPut("{userId}")]
+    [Produces("application/json", "application/xml")]
+    public IActionResult UpdateUser([FromRoute] Guid userId, [FromBody] UpdateUserDto user)
+    {
+        if (userId == Guid.Empty || user == null)
+            return BadRequest();
+
+        if (!ModelState.IsValid)
+            return UnprocessableEntity(ModelState);
+
+        var userEntity = mapper.Map(user, new UserEntity(userId));
+        userRepository.UpdateOrInsert(userEntity, out var isInserted);
+
+        if (!isInserted)
+            return NoContent();
+
+        return CreatedAtRoute(
+            nameof(GetUserById),
+            new { userId = userEntity.Id },
+            userEntity.Id);
     }
 }
